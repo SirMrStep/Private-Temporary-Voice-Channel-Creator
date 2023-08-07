@@ -101,7 +101,6 @@ class Deleter {
 }
 
 
-const { EmbedBuilder } = require('@discordjs/builders');
 const { Client, IntentsBitField, PermissionsBitField, ChannelType, NewsChannel, GuildMemberFlags, Colors} = require('discord.js');
 const { token } = require('./token.json');
 const deleter = new Map(); // map<guildID, Deleter>
@@ -125,7 +124,7 @@ client.on('ready', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
-client.on("messageCreate", (message) => {
+client.on("messageCreate", async (message) => {
 
   if(message.author.bot) return;
 
@@ -137,47 +136,39 @@ client.on("messageCreate", (message) => {
 
   if(args.length > 2) return;
 
-  const voicePromise = message.guild.channels.fetch(args[0]);
-  const categoryPromise = message.guild.channels.fetch(args[1]);
+  var vc = null;
+  var gc = null;
 
-  voicePromise.then(channel => {
+  const msg = message;
 
-    if(channel === null) {
-      message.reply("Could not find a channel with id '" + args[0] + "'!");
-      return;
-    }
+  await msg.guild.channels.fetch(args[0]).then(async (channel) => {
 
-    var validCategory = true;
+    vc = channel;
 
-    categoryPromise.then(category => {
+    await msg.guild.channels.fetch(args[1]).then(async (category) => {
 
-      if(category === null) {
-        message.reply("Could not find a category with id '" + args[1] + "'!");
-        validCategory = false;
-        return;
-      }
-  
-    }).then(async () => {
-
-      if(!validCategory) return;
+      cg = category;
 
       if(fs.readFileSync("./channels.json", {encoding: 'utf8'}).length === 0) {
 
-        fs.writeFileSync("./channels.json", JSON.stringify(createChannelData(message.guildId, args[0], args[1])));
+        fs.writeFileSync("./channels.json", JSON.stringify(createChannelData(msg.guildId, args[0], args[1])));
+        msg.reply("Join-Channel set to: " + (!isNullOrUndefined(vc) ? vc.name : args[0]) + ".\n" + "Category set to: " + (!isNullOrUndefined(cg) ? cg.name : args[1]) + ".");
         return;
 
       }
 
       var data = await JSON.parse(fs.readFileSync("./channels.json", {encoding: 'utf8'}));
 
-      data[message.guildId].voiceChannel = args[0];
-      data[message.guildId].categoryChannel = args[1];
+      data[msg.guildId].voiceChannel = args[0];
+      data[msg.guildId].categoryChannel = args[1];
 
       fs.writeFileSync("./channels.json", JSON.stringify(data));
 
-    });
+      }).then(async () => {
+        msg.reply("Join-Channel set to: " + (!isNullOrUndefined(vc) ? vc.name : args[0]) + ".\n" + "Category set to: " + (!isNullOrUndefined(cg) ? cg.name : args[1]) + ".");
+      }).catch((reason) => msg.reply("Could not find a category with id '" + args[1] + "'! " + reason));
 
-  });
+  }).catch((reason) => msg.reply("Could not find a channel with id '" + args[0] + "'! " + reason));
 
 });
 
@@ -187,7 +178,7 @@ function createChannelData(guildID, voiceChannel, categoryChannel) {
     new Map([
 
       [
-        message.guildId, Object.fromEntries(new Map([["voiceChannel", args[0]], ["categoryChannel", args[1]]]))
+        guildID, Object.fromEntries(new Map([["voiceChannel", voiceChannel], ["categoryChannel", categoryChannel]]))
       ]
 
     ])
@@ -264,6 +255,7 @@ async function isCreationChannel(channel) {
 
   //console.log("iscreation?" + (await JSON.parse(fs.readFileSync("./channels.json", { encoding: "utf8" }))[channel.guild.id].voiceChannel === channel.id));
 
+  if(fs.readFileSync("./channels.json", { encoding: "utf8" }).length === 0) return false;
   return await JSON.parse(fs.readFileSync("./channels.json", { encoding: "utf8" }))[channel.guild.id].voiceChannel === channel.id;
 
 }
