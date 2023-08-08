@@ -14,13 +14,9 @@ class Deleter {
 
   async add(channel) {
 
-    //console.log("duplicate? " + this.list.includes(channel));
-
     if(this.list.includes(channel)) return;
 
     this.list.push(channel);
-
-    //console.log("list size: " + this.list.length + ", " + this.list[0].id);
     
     await this.start();
  
@@ -36,33 +32,25 @@ class Deleter {
 
   async start() {
 
-    //console.log("deleting? " + this.deleting);
-
     if(this.deleting) return;
 
     this.deleting = true;
 
-    //console.log("starting deletion");
-
     for(var index = 0; index < this.list.length; index++) {
 
       const vc = this.list[0];
-
-      //console.log("looking at " + vc.id);
       
       if(!await isTempChannel(vc.id)) {
           
         try {
 
-          //console.log("deleting " + channel.id);
-          vc.delete().finally(() => {
+          vc.delete().catch(err => console.log("Error while deleting non-temp channel: " + err)).finally(() => {
             this.remove(0);
           });
 
         } catch(err) {
 
           this.remove(0);
-          //console.log("error while tryin to delete corrupt channel: " + err);
 
         }
 
@@ -72,21 +60,18 @@ class Deleter {
 
         try {
 
-          //console.log("deleting " + vc.id);
           var id = vc.id;
           vc.delete().then(async () => {
             const data = await JSON.parse(fs.readFileSync("./temp_channels.json", { encoding: "utf8" }));
             data.splice(data.indexOf(id), 1);
             fs.writeFileSync("./temp_channels.json", JSON.stringify(data));
-            
-          }).finally(() => {
+          }).catch(err => console.log("Error while deleting temp channel: " + err)).finally(() => {
             this.remove(0);
           });
 
         } catch(err) {
 
           this.remove(0);
-          //console.log("error while tryin to delete corrupt channel: " + err);
 
         }
 
@@ -101,11 +86,12 @@ class Deleter {
 }
 
 
-const { Client, IntentsBitField, PermissionsBitField, ChannelType, NewsChannel, GuildMemberFlags, Colors} = require('discord.js');
+const { EmbedBuilder } = require('@discordjs/builders');
+const { Client, IntentsBitField, PermissionsBitField, ChannelType, NewsChannel, GuildMemberFlags, Colors, Embed} = require('discord.js');
 const { token } = require('./token.json');
-const deleter = new Map(); // map<guildID, Deleter>
-const muteRole = new Map(); // map<guidID, role>
-const deafRole = new Map(); // map<guidID, role>
+const deleter = new Map(); // map<guild, Deleter>
+const muteRole = new Map(); // map<guild, role>
+const deafRole = new Map(); // map<guild, role>
 const fs = require("fs");
 
 const client = new Client({ 
@@ -136,39 +122,35 @@ client.on("messageCreate", async (message) => {
 
   if(args.length > 2) return;
 
-  var vc = null;
-  var gc = null;
+  var embed = new EmbedBuilder();
+  var description = "";
 
-  const msg = message;
+  var channel = await message.guild.channels.fetch(args[0]).catch((reason) => description = "Could not find a channel with id '" + args[0] + "'!" /*+ reason*/);
+  var category = await message.guild.channels.fetch(args[1]).catch((reason) => description = description + "\nCould not find a category with id '" + args[1] + "'!" /*+ reason*/);
 
-  await msg.guild.channels.fetch(args[0]).then(async (channel) => {
+  if(isNullOrUndefined(channel.name) || isNullOrUndefined(category.name)) {
+    message.reply({ embeds: [embed.setTitle("Error").setDescription(description).setColor(Colors.Red)] });
+    return;
+  }
 
-    vc = channel;
+  if(fs.readFileSync("./channels.json", {encoding: 'utf8'}).length === 0) {
 
-    await msg.guild.channels.fetch(args[1]).then(async (category) => {
+    fs.writeFileSync("./channels.json", JSON.stringify(createChannelData(message.guildId, args[0], args[1])));
+    message.reply("Join-Channel set to: " + (!isNullOrUndefined(channel) ? channel.name : args[0]) + ".\n" + "Category set to: " + (!isNullOrUndefined(category) ? category.name : args[1]) + ".");
+    return;
 
-      cg = category;
+  }
 
-      if(fs.readFileSync("./channels.json", {encoding: 'utf8'}).length === 0) {
+  var data = await JSON.parse(fs.readFileSync("./channels.json", {encoding: 'utf8'}));
 
-        fs.writeFileSync("./channels.json", JSON.stringify(createChannelData(msg.guildId, args[0], args[1])));
-        msg.reply("Join-Channel set to: " + (!isNullOrUndefined(vc) ? vc.name : args[0]) + ".\n" + "Category set to: " + (!isNullOrUndefined(cg) ? cg.name : args[1]) + ".");
-        return;
+  data[message.guildId].voiceChannel = args[0];
+  data[message.guildId].categoryChannel = args[1];
 
-      }
+  fs.writeFileSync("./channels.json", JSON.stringify(data));
 
-      var data = await JSON.parse(fs.readFileSync("./channels.json", {encoding: 'utf8'}));
-
-      data[msg.guildId].voiceChannel = args[0];
-      data[msg.guildId].categoryChannel = args[1];
-
-      fs.writeFileSync("./channels.json", JSON.stringify(data));
-
-      }).then(async () => {
-        msg.reply("Join-Channel set to: " + (!isNullOrUndefined(vc) ? vc.name : args[0]) + ".\n" + "Category set to: " + (!isNullOrUndefined(cg) ? cg.name : args[1]) + ".");
-      }).catch((reason) => msg.reply("Could not find a category with id '" + args[1] + "'! " + reason));
-
-  }).catch((reason) => msg.reply("Could not find a channel with id '" + args[0] + "'! " + reason));
+  description = "Join-Channel set to: " + (!isNullOrUndefined(channel) ? channel.name : args[0]) + ".\n" + "Category set to: " + (!isNullOrUndefined(category) ? category.name : args[1]) + ".";
+  
+  message.reply({ embeds: [embed.setTitle("Success").setDescription(description).setColor(Colors.Green)] });
 
 });
 
@@ -193,26 +175,17 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
 
   if(oldState.channel == newState.channel) return;
 
-  //console.log("something happened");
-
-  //console.log("member " + (memberLeft(oldState, newState) ? "left" : "joined"));
-
   if(channelBecameEmpty(oldState)) {
 
-    //console.log("channel became empty");
-
     if(await isTempChannel(oldState.channel.id)) {
-      //console.log("channel is temp");
+
       await removeTempChannel(oldState.channel);
-      
-      //console.log("removed temp channel");
+
     }
 
   }
 
   if(memberLeft(oldState, newState)) {
-
-    //console.log("istemp? " + isTempChannel(oldState.channel.id));
 
     if(await isTempChannel(oldState.channel.id) && (oldState.member.voice.mute || oldState.member.voice.deaf)) await unMuteAndUndeafen(oldState.member);
 
@@ -220,14 +193,10 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
 
   if(!memberJoined(oldState, newState)) return;
 
-  //console.log(newState.member.displayName + " joined " + newState.channel.name);
-
-  //console.log("member joined a channel");
-
   if(newState.member.voice.mute || newState.member.voice.deaf) {
 
     if(newState.member.roles.cache.some(role => role.name === "vc_tempMute" || role.name === "vc_tempDeaf")) {
-      await unMuteAndUndeafen(newState.member).then(async () => await removeRoles(newState.member));
+      if(await unMuteAndUndeafen(newState.member)) await removeRoles(newState.member);
     }
 
   }
@@ -236,8 +205,6 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
 
   await addTempChannel(newState.member, newState.guild);
 
-  //console.log("created new temp channel");
-
 });
 
 
@@ -245,16 +212,13 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
 
 async function isTempChannel(id) {
 
-  //console.log("istemp?" + await JSON.parse(fs.readFileSync("./temp_channels.json", { encoding: "utf8" })).includes(id));
-
   return await JSON.parse(fs.readFileSync("./temp_channels.json", { encoding: "utf8" })).includes(id);
 
 }
 
 async function isCreationChannel(channel) {
 
-  //console.log("iscreation?" + (await JSON.parse(fs.readFileSync("./channels.json", { encoding: "utf8" }))[channel.guild.id].voiceChannel === channel.id));
-
+  if(isNullOrUndefined(channel) || isNullOrUndefined(channel.name)) return false;
   if(fs.readFileSync("./channels.json", { encoding: "utf8" }).length === 0) return false;
   return await JSON.parse(fs.readFileSync("./channels.json", { encoding: "utf8" }))[channel.guild.id].voiceChannel === channel.id;
 
@@ -262,7 +226,7 @@ async function isCreationChannel(channel) {
 
 async function addTempChannel(member, guild) {
 
-  await guild.channels.create({
+  var channel = await guild.channels.create({
     name: member.displayName,
     type: ChannelType.GuildVoice,
     parent: await JSON.parse(fs.readFileSync("./channels.json", { encoding: "utf8" }))[guild.id].categoryChannel,
@@ -276,28 +240,37 @@ async function addTempChannel(member, guild) {
         deny: [PermissionsBitField.Flags.Connect]
       }
     ]
-  }).then(async vc => {
-
-    var removed = false;
-
-    await moveMember(member, vc).catch(() => {
-      removeTempChannel(vc)
-      removed = true;
-    });
-
-    if(removed) return;
-
-    const data = await JSON.parse(fs.readFileSync("./temp_channels.json", { encoding: "utf8" }));
-
-    data.push(vc.id);
-
-    fs.writeFileSync("./temp_channels.json", JSON.stringify(data));
-    
   });
+
+  var removed = false;
+
+  await moveMember(member, channel).catch(() => {
+    removeTempChannel(channel);
+    removed = true;
+  });
+
+  if(channel.members.size < 1) {
+    console.log("removing");
+    removeTempChannel(channel);
+    removed = true;
+  }
+
+  if(removed) return;
+
+  const data = await JSON.parse(fs.readFileSync("./temp_channels.json", { encoding: "utf8" }));
+
+  data.push(channel.id);
+
+  fs.writeFileSync("./temp_channels.json", JSON.stringify(data));
 
 }
 
 async function removeTempChannel(channel) {
+
+  if(isNullOrUndefined(channel) || isNullOrUndefined(channel.name)) {
+    console.log("fail");
+    return;
+  }
 
   if(isNullOrUndefined(deleter.get(channel.guild))) deleter.set(channel.guild, new Deleter());
 
@@ -331,97 +304,68 @@ async function moveMember(member, voicechannel) {
 
 async function unMuteAndUndeafen(member) {
 
-  await member.voice.setMute(false)
-    .then(async () => await member.voice.setDeaf(false))
-    .catch(async () => await assignRoles(member));
+  var success = true;
+
+  await member.voice.setMute(false).catch(async () => {
+    await assignRoles(member);
+    success = false;
+  });
+  await member.voice.setDeaf(false).catch(async () => {
+    await assignRoles(member);
+    success = false;
+  });
+
+  return success;
 
 }
 
 async function assignRoles(member) {
 
-  await rolesCreated(member.guild).then(async (roles) => {
+  if(!await rolesCreated(member.guild)) await createRoles(member.guild);
 
-    if(roles === false) {
-
-      await createRoles(member.guild).then(async () => {
-
-        //console.log(muteRole.get(member.guild).name);
-        //console.log(deafRole.get(member.guild).name);
-
-        if(member.voice.mute) await member.roles.add(await muteRole.get(member.guild)).catch(reason => console.log("Error trying to apply new role to member: " + reason));
-        if(member.voice.deaf) await member.roles.add(await deafRole.get(member.guild)).catch(reason => console.log("Error trying to apply new role to member: " + reason));
-  
-      }).catch(err => console.log("Error while creating roles: " + err));
-
-      return;
-
-    }
-
-    var mute = roles[0];
-    var deaf = roles[1];
-
-    if(mute !== muteRole.get(member.guild)) muteRole.set(member.guild, mute);
-    if(deaf !== deafRole.get(member.guild)) deafRole.set(member.guild, deaf);
-
-    if(member.voice.mute) await member.roles.add(await muteRole.get(member.guild)).catch(reason => console.log("Error trying to apply role to member: " + reason));
-    if(member.voice.deaf) await member.roles.add(await deafRole.get(member.guild)).catch(reason => console.log("Error trying to apply role to member: " + reason));
-
-  }).catch(err => console.log("Error while trying to check if roles were created: " + err));
+  if(member.voice.mute) await member.roles.add(await muteRole.get(member.guild)).catch(reason => console.log("Error trying to apply role to member: " + reason));
+  if(member.voice.deaf) await member.roles.add(await deafRole.get(member.guild)).catch(reason => console.log("Error trying to apply role to member: " + reason));
 
 }
 
 async function removeRoles(member) {
 
-  await rolesCreated(member.guild).then(async (created) => {
+  if(!await rolesCreated(member.guild)) return;
 
-    if(!created) return;
-
-    await member.roles.remove(muteRole.get(member.guild)).catch(err => console.log("Error while trying to remove role from member: " + err));
-    await member.roles.remove(deafRole.get(member.guild)).catch(err => console.log("Error while trying to remove role from member: " + err));
-
-  })
+  await member.roles.remove(muteRole.get(member.guild)).catch(err => console.log("Error while trying to remove role from member: " + err));
+  await member.roles.remove(deafRole.get(member.guild)).catch(err => console.log("Error while trying to remove role from member: " + err));
 
 }
 
 async function createRoles(guild) {
-  return await new Promise(async (resolve, reject) => {
 
-    await guild.roles.create({ name: "vc_tempMute"})
-      .then(async (mute) => {
-        muteRole.set(guild, await mute);
-        //console.log("success: " + muteRole.get(guild).name);
-      })
-      .then(await guild.roles.create({ name: "vc_tempDeaf"})
-        .then(async (deaf) => {
-          deafRole.set(guild, await deaf);
-          //console.log("success: " + deafRole.get(guild).name);
-        })
-        .then(async () => resolve([await muteRole.get(guild), await deafRole.get(guild)]))
-        .catch(err => {
-          console.log("Error while trying to create role 'vc_tempDeaf': " + err);
-          reject(err);
-        }))
-      .catch(err => {
-        console.log("Error while trying to create role 'vc_tempMute': " + err);
-        reject(err);
-      });
+  var failed = false;
 
+  var mute = await guild.roles.create({ name: "vc_tempMute"}).catch(err => {
+    console.log("Error while trying to create role 'vc_tempMute': " + err);
+    failed = true;
   });
+  var deaf = await guild.roles.create({ name: "vc_tempDeaf"}).catch(err => {
+    console.log("Error while trying to create role 'vc_tempDeaf': " + err);
+    failed = true;
+  });
+
+  if(failed) return;
+
+  muteRole.set(guild, mute);
+  deafRole.set(guild, deaf);
+
 }
 
 async function rolesCreated(guild) {
-  
-  return await new Promise(async (resolve, reject) => {
 
-    var mute = (await guild.roles.fetch()).find(role => role.name === "vc_tempMute");
-    var deaf = (await guild.roles.fetch()).find(role => role.name === "vc_tempDeaf");
+  var mute = await (await guild.roles.fetch()).find(role => role.name === "vc_tempMute");
+  var deaf = await (await guild.roles.fetch()).find(role => role.name === "vc_tempDeaf");
 
-    muteRole.set(guild, await mute);
-    deafRole.set(guild, await deaf);
+  muteRole.set(guild, mute);
+  deafRole.set(guild, deaf);
 
-    resolve(!isNullOrUndefined(await mute) && !isNullOrUndefined(await deaf) ? [await mute, await deaf] : false);
-
-  });
+  return !isNullOrUndefined(mute) && !isNullOrUndefined(deaf);
 
 }
 
