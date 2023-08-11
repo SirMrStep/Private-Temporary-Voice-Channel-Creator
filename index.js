@@ -114,6 +114,8 @@ client.on("messageCreate", async (message) => {
 
   if(message.author.bot) return;
 
+  if(!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
+
   const cmd = message.content.split(" ")[0];
 
   if(cmd.toLowerCase() !== "!channels") return;
@@ -197,13 +199,13 @@ client.on("voiceStateUpdate", async (oldState, newState) => {
 
   if(memberLeft(oldState, newState)) {
 
-    if(await isTempChannel(oldState.channel.id) && (oldState.member.voice.mute || oldState.member.voice.deaf)) await unMuteAndUndeafen(oldState.member);
+    if(await isTempChannel(oldState.channel.id) && (oldState.member.voice.serverMute || oldState.member.voice.serverDeaf)) await unMuteAndUndeafen(oldState.member);
 
   }
 
   if(!memberJoined(oldState, newState)) return;
 
-  if(newState.member.voice.mute || newState.member.voice.deaf) {
+  if(newState.member.voice.serverMute || newState.member.voice.serverDeaf) {
 
     if(newState.member.roles.cache.some(role => role.name === "vc_tempMute" || role.name === "vc_tempDeaf")) {
       if(await unMuteAndUndeafen(newState.member)) await removeRoles(newState.member);
@@ -230,7 +232,9 @@ async function isCreationChannel(channel) {
 
   if(isNullOrUndefined(channel) || isNullOrUndefined(channel.name)) return false;
   if(fs.readFileSync("./channels.json", { encoding: "utf8" }).length === 0) return false;
-  return await JSON.parse(fs.readFileSync("./channels.json", { encoding: "utf8" }))[channel.guild.id].voiceChannel === channel.id;
+  var data = await JSON.parse(fs.readFileSync("./channels.json", { encoding: "utf8" }));
+  if(isNullOrUndefined(data[channel.guild.id])) return false;
+  return data[channel.guild.id].voiceChannel === channel.id;
 
 }
 
@@ -243,7 +247,7 @@ async function addTempChannel(member, guild) {
     permissionOverwrites: [
       {
         id: member.user.id,
-        allow: [PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.Administrator]
+        allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.ManageChannels, PermissionsBitField.Flags.ManageRoles, PermissionsBitField.Flags.Administrator]
       },
       {
         id: guild.roles.everyone,
@@ -333,8 +337,8 @@ async function assignRoles(member) {
 
   if(!await rolesCreated(member.guild)) await createRoles(member.guild);
 
-  if(member.voice.mute) await member.roles.add(await muteRole.get(member.guild)).catch(reason => console.log("Error trying to apply role to member: " + reason));
-  if(member.voice.deaf) await member.roles.add(await deafRole.get(member.guild)).catch(reason => console.log("Error trying to apply role to member: " + reason));
+  if(member.voice.serverMute) await member.roles.add(await muteRole.get(member.guild)).catch(reason => console.log("Error trying to apply role to member: " + reason));
+  if(member.voice.serverDeaf) await member.roles.add(await deafRole.get(member.guild)).catch(reason => console.log("Error trying to apply role to member: " + reason));
 
 }
 
