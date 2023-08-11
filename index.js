@@ -136,12 +136,22 @@ client.on("messageCreate", async (message) => {
   if(fs.readFileSync("./channels.json", {encoding: 'utf8'}).length === 0) {
 
     fs.writeFileSync("./channels.json", JSON.stringify(createChannelData(message.guildId, args[0], args[1])));
-    message.reply("Join-Channel set to: " + (!isNullOrUndefined(channel) ? channel.name : args[0]) + ".\n" + "Category set to: " + (!isNullOrUndefined(category) ? category.name : args[1]) + ".");
+    description = "Join-Channel set to: " + (!isNullOrUndefined(channel) ? channel.name : args[0]) + ".\n" + "Category set to: " + (!isNullOrUndefined(category) ? category.name : args[1]) + ".";
+    message.reply({ embeds: [embed.setTitle("Success").setDescription(description).setColor(Colors.Green)] });
     return;
 
   }
 
   var data = await JSON.parse(fs.readFileSync("./channels.json", {encoding: 'utf8'}));
+
+  if(isNullOrUndefined(data[message.guildId])) {
+
+    fs.writeFileSync("./channels.json", JSON.stringify(createChannelData(message.guildId, args[0], args[1])));
+    description = "Join-Channel set to: " + (!isNullOrUndefined(channel) ? channel.name : args[0]) + ".\n" + "Category set to: " + (!isNullOrUndefined(category) ? category.name : args[1]) + ".";
+    message.reply({ embeds: [embed.setTitle("Success").setDescription(description).setColor(Colors.Green)] });
+    return;
+
+  }
 
   data[message.guildId].voiceChannel = args[0];
   data[message.guildId].categoryChannel = args[1];
